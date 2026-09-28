@@ -1,0 +1,84 @@
+// import { db } from './index.js';
+// import { users, events, sessions, bookings, checkInLogs, eventStaffs } from './schema.js';
+
+// async function seed() {
+
+//   await db.delete(checkInLogs);
+//   await db.delete(bookings);
+//   await db.delete(eventStaffs);
+//   await db.delete(sessions);
+//   await db.delete(events);
+//   await db.delete(users);
+
+//   console.log('🌱 กำลังเพิ่มข้อมูลตั้งต้นลงฐานข้อมูล...');
+
+//   // 1. สร้าง User ตัวอย่าง (ปรับชื่อ nickname และ birthday ให้ตรงกับ schema.ts)
+//   const [testUser] = await db.insert(users).values({
+//     firstName: 'วรภพ',
+//     lastName: 'เกิดทองสุก',
+//     nickname: 'ฟุ',
+//     birthday: '2005-10-24',
+//     occupation: 'นักศึกษา',
+//     workplace: 'มหาวิทยาลัยเชียงใหม่',
+//     emailAddress: 'worapop@example.com',
+//     phoneNumber: '0812345678',
+//     passwordHash: 'hashed_password_123',
+//   }).returning();
+
+//   // 2. สร้าง Event ตัวอย่าง
+//   const [event1] = await db.insert(events).values({
+//     eventName: 'สัมมนา Full Stack Developer 2026',
+//     shortDescription: 'อัปเดตเทรนด์เทคโนโลยีการพัฒนาเว็บแอปพลิเคชันแบบ Full Stack เจาะลึก React, Tailwind CSS, Zod และการเชื่อมต่อ Backend ระดับใช้งานจริง',
+//     description: 'มาร่วมอัปเดตเทรนด์เทคโนโลยีการพัฒนาเว็บแอปพลิเคชันแบบ Full Stack ในปี 2026 เจาะลึกตั้งแต่การออกแบบ UI ไปจนถึงการเชื่อมต่อกับ Backend และ PostgreSQL ระดับใช้งานจริง',
+//     eventDate: '2026-10-15',
+//     venue: 'หอประชุมใหญ่ อาคารนวัตกรรม',
+//     category: 'Technology',
+//     imageUrl: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=800&q=80',
+//     userId: testUser.userId,
+//     eventsStatus: 'Upcoming',
+//     maxCapacity: 500,
+//   }).returning();
+
+//   // 3. สร้างรอบเวลา (Sessions) ให้ Event
+//   const insertedSessions = await db.insert(sessions).values([
+//     {
+//       eventId: event1.eventId,
+//       startTime: '09:00',
+//       endTime: '12:00',
+//       capacity: 200,
+//       booked: 200,
+//     },
+//     {
+//       eventId: event1.eventId,
+//       startTime: '13:00',
+//       endTime: '16:00',
+//       capacity: 200,
+//       booked: 145,
+//     },
+//     {
+//       eventId: event1.eventId,
+//       startTime: '16:30',
+//       endTime: '19:30',
+//       capacity: 100,
+//       booked: 32,
+//     },
+//   ]).returning();
+
+//   // 4. สร้างตั๋วตัวอย่าง (EVT-8A2B9C) สำหรับทดสอบสแกน QR Code
+//   await db.insert(bookings).values({
+//     ticketRef: 'EVT-8A2B9C',
+//     userId: testUser.userId,
+//     eventId: event1.eventId,
+//     sessionId: insertedSessions[1].sessionId,
+//     bookingStatus: 'CONFIRMED',
+//     healthDeclaration: 'ปกติ',
+//   });
+
+//   console.log('✅ เพิ่มข้อมูลตั้งต้นสำเร็จเรียบร้อย!');
+//   process.exit(0);
+// }
+
+// seed().catch((err) => {
+//   console.error('❌ เกิดข้อผิดพลาดในการ Seed ข้อมูล:', err);
+//   process.exit(1);
+// });
