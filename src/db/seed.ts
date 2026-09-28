@@ -28,8 +28,8 @@ async function seed() {
       .insert(users)
       .values([
         {
-          firstName: 'วรภพ',
-          lastName: 'เกิดทองสุข',
+          firstName: 'กรณ์ภพ',
+          lastName: 'ดวงศ์',
           nickname: 'ฟิวส์',
           emailAddress: 'worapop.k@cmu.ac.th',
           phoneNumber: '0812345678', // ปรับเบอร์โทรให้มีความยาวไม่เกิน 10 หลักตาม schema.ts
@@ -130,7 +130,7 @@ async function seed() {
     const insertedEvents = await db
       .insert(events)
       .values([
-        // งานที่ 1: วรภพเป็น Attendee (มีรอบเต็ม 200/200 และรอบว่าง)
+        // งานที่ 1: กรณ์ภพ เป็น Attendee (มีรอบเต็ม 200/200 และรอบว่าง)
         {
           userId: user8.userId,
           eventName: 'สัมมนา Full Stack Developer 2026',
@@ -146,7 +146,7 @@ async function seed() {
           eventsStatus: 'Upcoming',
           maxCapacity: 500,
         },
-        // งานที่ 2: วรภพเป็น Organizer เอง! (มีผู้สมัครหลายคนไว้ทดสอบหน้า OrganizerDashboard + Export Excel/PDF)
+        
         {
           userId: mainUser.userId,
           eventName: 'เวิร์กชอป React & TypeScript เชิงลึก',
@@ -162,7 +162,7 @@ async function seed() {
           eventsStatus: 'Upcoming',
           maxCapacity: 150,
         },
-        // งานที่ 3: วรภพเป็น Staff (ไว้ทดสอบป้าย Staff และปุ่มเปิดกล้องสแกนตั๋ว)
+        
         {
           userId: user8.userId,
           eventName: 'คอนเสิร์ตส่งท้ายปี Lanna Music Fest 2026',
@@ -178,7 +178,7 @@ async function seed() {
           eventsStatus: 'Upcoming',
           maxCapacity: 600,
         },
-        // งานที่ 4: วรภพเป็น Organizer งานที่ 2 (หมวดหมู่ Art & Culture)
+        
         {
           userId: mainUser.userId,
           eventName: 'Digital Illustration & Character Design Expo 2026',
@@ -194,7 +194,7 @@ async function seed() {
           eventsStatus: 'Upcoming',
           maxCapacity: 200,
         },
-        // งานที่ 5: หมวดหมู่ Business (วรภพมีตั๋วที่สแกน CHECKED_IN ไปแล้ว)
+        
         {
           userId: user8.userId,
           eventName: 'Chiang Mai Startup & AI Pitching Day 2026',
@@ -261,7 +261,7 @@ async function seed() {
           booked: 33,
         },
 
-        // รอบของงานที่ 2: เวิร์กชอป React & TypeScript (งานที่วรภพเป็น Organizer)
+        
         {
           eventId: evReactWorkshop.eventId,
           startTime: '09:00',
@@ -365,7 +365,7 @@ async function seed() {
     ] = insertedSessions;
 
     // ============================================================================
-    // 5. กำหนดสิทธิ์ Staff (ให้วรภพเป็น Staff ในงานคอนเสิร์ตส่งท้ายปี)
+    // 5. กำหนดสิทธิ์ Staff 
     // ============================================================================
     await db.insert(eventStaffs).values([
       {
@@ -377,7 +377,7 @@ async function seed() {
       {
         eventId: evReactWorkshop.eventId,
         userId: user4.userId,
-        assignedBy: mainUser.userId, // <-- วรภพเป็นผู้มอบหมายให้ user4 เป็น Staff
+        assignedBy: mainUser.userId, 
         zone: 'Registration Desk',
       },
     ]);
@@ -392,7 +392,7 @@ async function seed() {
     const insertedBookings = await db
       .insert(bookings)
       .values([
-        // --- ตั๋วของวรภพ (Main User) ---
+       
         {
           userId: mainUser.userId,
           eventId: evFullStack.eventId,
@@ -411,7 +411,7 @@ async function seed() {
           checkInTime: oneHourAgo,
         },
 
-        // --- รายชื่อผู้เข้าร่วมในงาน "เวิร์กชอป React & TypeScript" (ที่วรภพเป็น Organizer) ---
+       
         {
           userId: user2.userId,
           eventId: evReactWorkshop.eventId,
@@ -480,7 +480,7 @@ async function seed() {
           healthDeclaration: 'ผู้จัดงานเข้าร่วมสังเกตการณ์',
         },
 
-        // --- รายชื่อผู้เข้าร่วมในงาน "Digital Illustration Expo" (ที่วรภพเป็น Organizer อีกงาน) ---
+        // --- รายชื่อผู้เข้าร่วมในงาน "Digital Illustration Expo" ---
         {
           userId: user7.userId,
           eventId: evArtExpo.eventId,
@@ -522,7 +522,7 @@ async function seed() {
     console.log('✅ สร้างข้อมูลจำลอง (Seed) สำเร็จครบทุกตาราง!');
     console.log('------------------------------------------------------------');
     console.log('🎟️ รหัสตั๋วสำหรับนำไปทดสอบสแกนในหน้า Staff Scanner (สถานะ CONFIRMED):');
-    console.log('   - EVT-8A2B9C (คุณวรภพ - งานสัมมนา Full Stack)');
+    console.log('   - EVT-8A2B9C (คุณกรณ์ภพ - งานสัมมนา Full Stack)');
     console.log('   - EVT-RCT103 (คุณธนภัทร - งานเวิร์กชอป React)');
     console.log('   - EVT-RCT104 (คุณณัฐณิชา - งานเวิร์กชอป React)');
     console.log('   - EVT-RCT202 (คุณชลธิชา - งานเวิร์กชอป React)');
