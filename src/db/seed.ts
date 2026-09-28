@@ -28,13 +28,13 @@ async function seed() {
       .insert(users)
       .values([
         {
-          firstName: 'กรณ์ภพ',
-          lastName: 'ดวงศ์',
+          firstName: 'วรภพ',
+          lastName: 'เกิดทองสุข',
           nickname: 'ฟิวส์',
           emailAddress: 'worapop.k@cmu.ac.th',
-          phoneNumber: '0812345678', // ปรับเบอร์โทรให้มีความยาวไม่เกิน 10 หลักตาม schema.ts
+          phoneNumber: '0812345678', // 10 หลัก ไม่มีขีด
           passwordHash: 'hashed_password_123',
-          birthday: new Date('2005-10-24'), // 👈 แปลงเป็น Date object
+          birthday: '2005-10-24',    // ใช้ String ตามที่ date() ใน schema.ts กำหนด
           occupation: 'นักศึกษาวิศวกรรมคอมพิวเตอร์',
           workplace: 'มหาวิทยาลัยเชียงใหม่',
           profileImage:
@@ -49,9 +49,11 @@ async function seed() {
           emailAddress: 'kittipong.j@example.com',
           phoneNumber: '0891112233',
           passwordHash: 'hashed_password_123',
-          birthday: new Date('2003-05-14'), // 👈 แปลงเป็น Date object
+          birthday: '2003-05-14',
           occupation: 'Frontend Developer',
           workplace: 'Chiang Mai Digital Lab',
+          profileImage: null,
+          backgroundImage: null,
         },
         {
           firstName: 'พิมพ์ชนก',
@@ -60,9 +62,11 @@ async function seed() {
           emailAddress: 'pimchanok.s@example.com',
           phoneNumber: '0864456677',
           passwordHash: 'hashed_password_123',
-          birthday: new Date('2004-08-21'), // 👈 แปลงเป็น Date object
+          birthday: '2004-08-21',
           occupation: 'UX/UI Designer',
           workplace: 'Creative Studio CNX',
+          profileImage: null,
+          backgroundImage: null,
         },
         {
           firstName: 'ธนภัทร',
@@ -71,9 +75,11 @@ async function seed() {
           emailAddress: 'thanapat.w@example.com',
           phoneNumber: '0829988877',
           passwordHash: 'hashed_password_123',
-          birthday: new Date('2002-11-03'), // 👈 แปลงเป็น Date object
+          birthday: '2002-11-03',
           occupation: 'System Engineer',
           workplace: 'Tech Sphere Thailand',
+          profileImage: null,
+          backgroundImage: null,
         },
         {
           firstName: 'ณัฐณิชา',
@@ -82,9 +88,11 @@ async function seed() {
           emailAddress: 'nattanicha.a@example.com',
           phoneNumber: '0912233344',
           passwordHash: 'hashed_password_123',
-          birthday: new Date('2005-02-19'), // 👈 แปลงเป็น Date object
+          birthday: '2005-02-19',
           occupation: 'นักศึกษา',
           workplace: 'มหาวิทยาลัยเชียงใหม่',
+          profileImage: null,
+          backgroundImage: null,
         },
         {
           firstName: 'ศุภกร',
@@ -93,9 +101,11 @@ async function seed() {
           emailAddress: 'supakorn.t@example.com',
           phoneNumber: '0956677788',
           passwordHash: 'hashed_password_123',
-          birthday: new Date('2001-07-30'), // 👈 แปลงเป็น Date object
+          birthday: '2001-07-30',
           occupation: 'Data Analyst',
           workplace: 'Northern Data Co., Ltd.',
+          profileImage: null,
+          backgroundImage: null,
         },
         {
           firstName: 'ชลธิชา',
@@ -104,9 +114,11 @@ async function seed() {
           emailAddress: 'chonticha.l@example.com',
           phoneNumber: '0845567890',
           passwordHash: 'hashed_password_123',
-          birthday: new Date('2004-12-10'), // 👈 แปลงเป็น Date object
+          birthday: '2004-12-10',
           occupation: 'Digital Artist & Illustrator',
           workplace: 'Freelance',
+          profileImage: null,
+          backgroundImage: null,
         },
         {
           firstName: 'ปวริศ',
@@ -115,9 +127,11 @@ async function seed() {
           emailAddress: 'pawaris.k@example.com',
           phoneNumber: '0998876543',
           passwordHash: 'hashed_password_123',
-          birthday: new Date('1999-04-05'), // 👈 แปลงเป็น Date object
+          birthday: '1999-04-05',
           occupation: 'Project Manager',
           workplace: 'Lanna Innovation Hub',
+          profileImage: null,
+          backgroundImage: null,
         },
       ])
       .returning();
