@@ -8,7 +8,7 @@
     "strict": true,
     "skipLibCheck": true,
     "outDir": "./dist",
-    "types": ["node"]
+    "types": ["node", "jest"]
   },
   "include": ["src/**/*", "drizzle.config.ts"],
   "exclude": ["node_modules"]
