@@ -533,7 +533,7 @@ app.put('/api/profile', async (req: Request, res: Response) => {
       workplace,
       profileImage,
       backgroundImage,
-      // password, // คอมเมนต์เก็บไว้ก่อน
+      // password, 
     } = req.body;
 
     const currentUser = await db.query.users.findFirst();
