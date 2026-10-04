@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { eq, sql, asc, and } from 'drizzle-orm';
 import { db } from './db/index.js';
 import { users, events, sessions, bookings, checkInLogs, eventStaffs } from './db/schema.js';
+import { loginSchema, createEventSchema, updateProfileSchema } from './validators/zodValidators.js';
 
 const app = express();
 
@@ -165,8 +166,8 @@ app.post('/api/bookings', async (req: Request, res: Response) => {
       return;
     }
 
-    // 2. ดึง User ตัวอย่างจากฐานข้อมูลมาเป็นผู้จอง (ระหว่างที่ยังไม่ได้เชื่อมหน้า Login)
-    const defaultUser = await db.query.users.findFirst();
+    // 2. ดึง User ที่กำลัง Login
+    const defaultUser = await getCurrentUser(req);
     if (!defaultUser) {
       res.status(400).json({ message: 'ไม่พบข้อมูลผู้ใช้งานในระบบ กรุณารัน seed ข้อมูลก่อน' });
       return;
@@ -226,7 +227,7 @@ app.post('/api/bookings', async (req: Request, res: Response) => {
 // API ดึงข้อมูลกิจกรรมของฉันครบทุกบทบาท: Attendee, Organizer, Staff (ใช้ในหน้า MyEvents)
 app.get('/api/my-bookings', async (req: Request, res: Response) => {
   try {
-    const defaultUser = await db.query.users.findFirst();
+    const defaultUser = await getCurrentUser(req);
     if (!defaultUser) {
       res.json([]);
       return;
@@ -347,8 +348,8 @@ app.post('/api/events', async (req: Request, res: Response) => {
       sessions: sessionList,
     } = req.body;
 
-    // 1. ดึง User ปัจจุบันมาเป็นผู้จัดงาน (Organizer)
-    const defaultUser = await db.query.users.findFirst();
+    // 1. ดึง User ที่กำลัง Login (ผู้จัดงาน)
+    const defaultUser = await getCurrentUser(req);
     if (!defaultUser) {
       res.status(400).json({ message: 'ไม่พบข้อมูลผู้ใช้งานในระบบ' });
       return;
@@ -533,7 +534,7 @@ app.put('/api/profile', async (req: Request, res: Response) => {
       // password, // คอมเมนต์เก็บไว้ก่อน
     } = req.body;
 
-    const currentUser = await db.query.users.findFirst();
+    const currentUser = await getCurrentUser(req);
     if (!currentUser) {
       res.status(404).json({ message: 'ไม่พบข้อมูลผู้ใช้งาน' });
       return;
@@ -567,6 +568,69 @@ app.put('/api/profile', async (req: Request, res: Response) => {
     console.error(error);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลส่วนตัว' });
   }
+});
+
+// ฟังก์ชันช่วยดึง User ปัจจุบันจาก Header (x-user-id) ที่แต่ละแท็บส่งมา
+async function getCurrentUser(req: Request) {
+  const headerUserId = req.headers['x-user-id'] as string | undefined;
+  if (headerUserId) {
+    const user = await db.query.users.findFirst({
+      where: eq(users.userId, headerUserId),
+    });
+    if (user) return user;
+  }
+  // Fallback กรณีไม่ได้ส่ง Header มา ให้ดึงคนแรกเหมือนเดิมเพื่อไม่ให้ระบบเก่าพัง
+  return await db.query.users.findFirst();
+}
+
+// 🔑 API สำหรับเข้าสู่ระบบ (Login) พร้อมตรวจสอบด้วย Zod
+app.post('/api/auth/login', async (req: Request, res: Response) => {
+  try {
+    const parsed = loginSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ 
+        message: parsed.error.issues[0].message,
+        errors: parsed.error.flatten().fieldErrors 
+      });
+      return;
+    }
+
+    const { emailAddress, password } = parsed.data;
+
+    const user = await db.query.users.findFirst({
+      where: eq(users.emailAddress, emailAddress),
+    });
+
+    // ตรวจสอบรหัสผ่าน (รองรับทั้งรหัสจำลองใน seed และรหัสที่ตั้งไว้)
+    if (!user || (user.passwordHash !== password && password !== '123456')) {
+      res.status(401).json({ message: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
+      return;
+    }
+
+    const { passwordHash, ...safeUser } = user;
+    res.json({
+      message: 'เข้าสู่ระบบสำเร็จ!',
+      user: safeUser,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ' });
+  }
+});
+
+// 📋 API ดึงรายชื่อ User ทั้งหมดสำหรับปุ่มสลับบัญชีด่วน (Demo Switcher ตอนสอบ)
+app.get('/api/auth/demo-users', async (req: Request, res: Response) => {
+  const allUsers = await db.query.users.findMany({
+    columns: {
+      userId: true,
+      firstName: true,
+      lastName: true,
+      emailAddress: true,
+      occupation: true,
+      profileImage: true,
+    },
+  });
+  res.json(allUsers);
 });
 
 export default app;
