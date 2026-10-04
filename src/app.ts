@@ -505,7 +505,7 @@ app.put('/api/events/:id', async (req: Request, res: Response) => {
 // API ดึงข้อมูลโปรไฟล์ผู้ใช้ปัจจุบัน (ใช้ในหน้า MyAccount และ Overview)
 app.get('/api/profile', async (req: Request, res: Response) => {
   try {
-    const user = await db.query.users.findFirst();
+    const user = await getCurrentUser(req);
     if (!user) {
       res.status(404).json({ message: 'ไม่พบข้อมูลผู้ใช้งาน' });
       return;
