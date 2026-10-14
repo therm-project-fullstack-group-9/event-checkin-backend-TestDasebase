@@ -1,0 +1,45 @@
+# รันบนเซิร์ฟเวอร์ CMU: คัดลอกไฟล์นี้ไปเป็น docker-compose.yml คู่กับไฟล์ .env (ดู deploy/.env.example)
+#   docker compose pull && docker compose up -d
+# เปิดพอร์ตออกนอกแค่ frontend (PUBLIC_PORT, ค่าเริ่มต้น 6019 = ช่องของ g19) ส่วน backend/DB อยู่ใน network ภายใน ไม่ชนกับ container ของกลุ่มอื่น
+name: eventscheckin
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_APP_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-events_checkin}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_APP_USER:-postgres} -d ${POSTGRES_DB:-events_checkin}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: ${DOCKERHUB_USERNAME}/eventscheckin-backend:${TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql://${POSTGRES_APP_USER:-postgres}:${POSTGRES_APP_PASSWORD}@db:5432/${POSTGRES_DB:-events_checkin}
+
+  frontend:
+    image: ${DOCKERHUB_USERNAME}/eventscheckin-frontend:${TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '${PUBLIC_PORT:-6019}:80'
+
+volumes:
+  dbdata:

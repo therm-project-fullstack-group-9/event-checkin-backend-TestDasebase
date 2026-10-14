@@ -1,0 +1,29 @@
+name: Docker publish
+
+# build image แล้ว push ขึ้น Docker Hub ทุกครั้งที่ push เข้า main (หรือกดรันเอง)
+# ตั้งค่า GitHub secrets ที่ repo นี้: DOCKERHUB_USERNAME และ DOCKERHUB_TOKEN (access token ไม่ใช่รหัสผ่าน)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/eventscheckin-backend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/eventscheckin-backend:${{ github.sha }}
