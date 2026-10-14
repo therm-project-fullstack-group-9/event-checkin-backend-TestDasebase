@@ -14,7 +14,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations, sql } from 'drizzle-orm';
 
-export const bookingStatusEnum = pgEnum('booking_status', ['CONFIRMED', 'CHECKED_IN', 'CANCELLED']);
+export const bookingStatusEnum = pgEnum('booking_status', ['CONFIRMED', 'CHECKED_IN', 'CANCELLED', 'NO_SHOW']);
 export const actionTypeEnum = pgEnum('action_type', ['IN', 'OUT']);
 
 
@@ -30,8 +30,10 @@ export const users = pgTable("users", {
     occupation: varchar('occupation', { length: 100 }),
     workplace: varchar('workplace', { length: 100 }),
     emailAddress: varchar("email_address", { length: 255 }).notNull().unique(),
-    phoneNumber: varchar("phone_number", { length: 10 }).notNull().unique(),
-    passwordHash: varchar("password_hash", { length: 255 }).notNull(),
+    // ผู้ใช้ที่สมัครผ่าน OAuth อาจยังไม่มีเบอร์โทร/รหัสผ่าน (unique อนุญาต NULL หลายแถว)
+    phoneNumber: varchar("phone_number", { length: 10 }).unique(),
+    passwordHash: varchar("password_hash", { length: 255 }),
+    authProvider: varchar("auth_provider", { length: 20 }).default('local').notNull(),
     createdUserDate: timestamp("created_user_date").defaultNow().notNull(),
     updatedUserDate: timestamp("updated_user_date").defaultNow().notNull(),
 });

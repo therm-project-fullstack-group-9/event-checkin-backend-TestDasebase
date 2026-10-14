@@ -7,9 +7,17 @@ import { randomBytes } from 'node:crypto';
 import { eq, sql, asc, and, ne } from 'drizzle-orm';
 import { db } from './db/index.js';
 import { users, events, sessions, bookings, checkInLogs, eventStaffs } from './db/schema.js';
-import { loginSchema, createEventSchema, updateProfileSchema } from './validators/zodValidators.js';
+import { createEventSchema, updateProfileSchema } from './validators/zodValidators.js';
+import authRouter from './routes/auth.js';
+import { requireAuth } from './auth/middleware.js';
+import staffRouter from './routes/staff.js';
+import { hasSessionEnded } from './lib/eventTime.js';
+import { markOverdueNoShows, getBookingRestriction } from './services/noShow.js';
 
 const app = express();
+
+// อยู่หลัง nginx: ให้ req.ip เป็น IP ผู้ใช้จริง (ใช้กับ rate limit)
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(helmet());
@@ -17,6 +25,23 @@ app.use(cors());
 app.use(morgan('dev'));
 // app.use(express.json());
 app.use(express.json({ limit: '10mb' }));
+
+// Auth: /api/auth/register, /login, /me, /cmu, /callback
+app.use('/api/auth', authRouter);
+
+// จัดการสตาฟของกิจกรรม: /api/events/:id/staff
+app.use('/api/events', staffRouter);
+
+// ผู้จัดงานหรือสตาฟของงานนี้หรือไม่ (ใช้ตรวจสิทธิ์สแกนเช็คอินและดูรายชื่อ)
+async function isOrganizerOrStaff(userId: string, eventId: string) {
+  const event = await db.query.events.findFirst({ where: eq(events.eventId, eventId) });
+  if (!event) return { exists: false, organizer: false, staff: false };
+  if (event.userId === userId) return { exists: true, organizer: true, staff: false };
+  const staff = await db.query.eventStaffs.findFirst({
+    where: and(eq(eventStaffs.userId, userId), eq(eventStaffs.eventId, eventId)),
+  });
+  return { exists: true, organizer: false, staff: !!staff };
+}
 
 // เช็คสถานะเซิร์ฟเวอร์
 app.get('/api/health', (req: Request, res: Response) => {
@@ -78,7 +103,7 @@ app.get('/api/events/:id', async (req: Request, res: Response) => {
 });
 
 // API สำหรับสตาฟฟ์สแกน QR Code เช็คอิน (ใช้ในหน้า StaffScanner)
-app.post('/api/staff/check-in', async (req: Request, res: Response) => {
+app.post('/api/staff/check-in', requireAuth, async (req: Request, res: Response) => {
   try {
     const { ticketRef } = req.body;
 
@@ -94,6 +119,43 @@ app.post('/api/staff/check-in', async (req: Request, res: Response) => {
 
     if (!booking) {
       res.status(404).json({ status: 'error', message: `ไม่พบรหัสตั๋ว (${ticketRef}) ในระบบ` });
+      return;
+    }
+
+    // เฉพาะผู้จัดงานหรือสตาฟที่ถูกมอบหมายให้งานนี้เท่านั้นที่สแกนได้
+    const role = await isOrganizerOrStaff(req.userId!, booking.eventId);
+    if (!role.organizer && !role.staff) {
+      res.status(403).json({ status: 'error', message: 'คุณไม่มีสิทธิ์เช็คอินของกิจกรรมนี้' });
+      return;
+    }
+
+    // กฎโควตาอัตโนมัติ: เลยเวลาสิ้นสุดของรอบแล้วยังไม่ได้เช็คอิน = ไม่มาตามรอบ (NO_SHOW) สแกนเข้าไม่ได้
+    if (booking.bookingStatus === 'CONFIRMED' &&
+        hasSessionEnded(booking.event.eventDate, booking.session.startTime, booking.session.endTime)) {
+      await markOverdueNoShows({ bookingId: booking.bookingId });
+      res.status(403).json({
+        status: 'error',
+        code: 'SESSION_ENDED',
+        message: `หมดเวลาเช็คอินของรอบนี้แล้ว ตั๋ว (${ticketRef}) ถูกบันทึกว่าไม่มาตามรอบ`,
+        ticketRef: booking.ticketRef,
+        attendee: `${booking.user.firstName} ${booking.user.lastName}`,
+        eventTitle: booking.event.eventName,
+      });
+      return;
+    }
+    if (booking.bookingStatus === 'NO_SHOW') {
+      res.status(403).json({
+        status: 'error',
+        code: 'NO_SHOW',
+        message: `ตั๋ว (${ticketRef}) ถูกบันทึกว่าไม่มาตามรอบ ไม่สามารถเช็คอินได้`,
+        ticketRef: booking.ticketRef,
+        attendee: `${booking.user.firstName} ${booking.user.lastName}`,
+        eventTitle: booking.event.eventName,
+      });
+      return;
+    }
+    if (booking.bookingStatus === 'CANCELLED') {
+      res.status(400).json({ status: 'error', message: `ตั๋ว (${ticketRef}) ถูกยกเลิกแล้ว` });
       return;
     }
 
@@ -123,7 +185,7 @@ app.post('/api/staff/check-in', async (req: Request, res: Response) => {
 
       await tx.insert(checkInLogs).values({
         bookingId: booking.bookingId,
-        userId: booking.userId, // TODO: เปลี่ยนเป็น staff ที่สแกนจริงเมื่อมีระบบ JWT
+        userId: req.userId!, // คนที่สแกนจริง (staff/organizer)
         ticketRef: booking.ticketRef,
         actionType: 'IN',
         timestamp: now,
@@ -171,7 +233,7 @@ const generateTicketRef = () => `EVT-${randomBytes(4).toString('hex').toUpperCas
 // API สำหรับกดจองตั๋วเข้าร่วมกิจกรรม (ใช้ในหน้า EventDetails)
 // แก้ Race Condition: ตรวจที่นั่ง + เพิ่ม booked + สร้างใบจอง ทำใน transaction เดียว
 // โดยใช้ atomic UPDATE ... WHERE booked < capacity ทำให้ตั๋วใบสุดท้ายถูกจองได้เพียงคนเดียว
-app.post('/api/bookings', async (req: Request, res: Response) => {
+app.post('/api/bookings', requireAuth, async (req: Request, res: Response) => {
   try {
     const { sessionId, healthDeclaration } = req.body;
 
@@ -180,13 +242,28 @@ app.post('/api/bookings', async (req: Request, res: Response) => {
       return;
     }
 
-    // ดึง User ที่กำลัง Login
-    const defaultUser = await getCurrentUser(req);
-    if (!defaultUser) {
-      res.status(400).json({ message: 'ไม่พบข้อมูลผู้ใช้งานในระบบ กรุณารัน seed ข้อมูลก่อน' });
+    const currentUserId = req.userId!;
+
+    // กฎโควตาอัตโนมัติ: ผู้ที่เคยไม่มาตามรอบจนครบเกณฑ์ จะจองตั๋วใหม่ไม่ได้
+    const restriction = await getBookingRestriction(currentUserId);
+    if (restriction.bookingBlocked) {
+      res.status(403).json({
+        code: 'BOOKING_BLOCKED',
+        message: `คุณถูกระงับสิทธิ์การจองตั๋ว เนื่องจากไม่มาเข้าร่วมตามรอบที่จองไว้ ${restriction.noShowCount} ครั้ง`,
+        noShowCount: restriction.noShowCount,
+      });
       return;
     }
-    const currentUserId = (defaultUser as any).userId || (defaultUser as any).id;
+
+    // จองรอบที่สิ้นสุดไปแล้วไม่ได้
+    const target = await db.query.sessions.findFirst({
+      where: eq(sessions.sessionId, sessionId),
+      with: { event: true },
+    });
+    if (target && hasSessionEnded(target.event.eventDate, target.startTime, target.endTime)) {
+      res.status(400).json({ message: 'รอบเวลานี้สิ้นสุดไปแล้ว ไม่สามารถจองได้' });
+      return;
+    }
 
     const newBooking = await db.transaction(async (tx) => {
       // 1. จองที่นั่งแบบ atomic: เพิ่ม booked ได้ก็ต่อเมื่อยังไม่เต็มเท่านั้น
@@ -253,14 +330,9 @@ app.post('/api/bookings', async (req: Request, res: Response) => {
 });
 
 // API ดึงข้อมูลกิจกรรมของฉันครบทุกบทบาท: Attendee, Organizer, Staff (ใช้ในหน้า MyEvents)
-app.get('/api/my-bookings', async (req: Request, res: Response) => {
+app.get('/api/my-bookings', requireAuth, async (req: Request, res: Response) => {
   try {
-    const defaultUser = await getCurrentUser(req);
-    if (!defaultUser) {
-      res.json([]);
-      return;
-    }
-    const currentUserId = (defaultUser as any).userId || (defaultUser as any).id;
+    const currentUserId = req.userId!;
 
     // 1. ดึงรายการตั๋วที่จองไว้ (บทบาท Attendee)
     const userBookings = await db.query.bookings.findMany({
@@ -330,7 +402,7 @@ app.get('/api/my-bookings', async (req: Request, res: Response) => {
 });
 
 // API ดึงข้อมูลตั๋วรายใบตามรหัส TicketRef (ใช้ในหน้า Ticket)
-app.get('/api/tickets/:ticketRef', async (req: Request, res: Response) => {
+app.get('/api/tickets/:ticketRef', requireAuth, async (req: Request, res: Response) => {
   try {
     const ticketRef = req.params.ticketRef as string;
 
@@ -355,6 +427,15 @@ app.get('/api/tickets/:ticketRef', async (req: Request, res: Response) => {
       return;
     }
 
+    // ดูตั๋วได้เฉพาะเจ้าของตั๋ว ผู้จัดงาน หรือสตาฟของงานนั้น
+    if (booking.userId !== req.userId) {
+      const role = await isOrganizerOrStaff(req.userId!, booking.eventId);
+      if (!role.organizer && !role.staff) {
+        res.status(403).json({ message: 'คุณไม่มีสิทธิ์ดูตั๋วใบนี้' });
+        return;
+      }
+    }
+
     res.json(booking);
   } catch (error) {
     console.error(error);
@@ -363,7 +444,13 @@ app.get('/api/tickets/:ticketRef', async (req: Request, res: Response) => {
 });
 
 // API สำหรับสร้างกิจกรรมใหม่พร้อมรอบเวลา (ใช้ในหน้า CreateEvent)
-app.post('/api/events', async (req: Request, res: Response) => {
+app.post('/api/events', requireAuth, async (req: Request, res: Response) => {
+  const parsed = createEventSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ message: parsed.error.issues[0].message, errors: parsed.error.flatten().fieldErrors });
+    return;
+  }
+
   try {
     const {
       eventName,
@@ -374,15 +461,10 @@ app.post('/api/events', async (req: Request, res: Response) => {
       category,
       imageUrl,
       sessions: sessionList,
-    } = req.body;
+    } = parsed.data;
 
-    // 1. ดึง User ที่กำลัง Login (ผู้จัดงาน)
-    const defaultUser = await getCurrentUser(req);
-    if (!defaultUser) {
-      res.status(400).json({ message: 'ไม่พบข้อมูลผู้ใช้งานในระบบ' });
-      return;
-    }
-    const currentUserId = (defaultUser as any).userId || (defaultUser as any).id;
+    // 1. ผู้จัดงานคือผู้ที่ล็อกอินอยู่
+    const currentUserId = req.userId!;
 
     // 2. คำนวณความจุรวม (maxCapacity) จากทุก Sessions รวมกัน
     const totalCapacity = Array.isArray(sessionList)
@@ -439,7 +521,7 @@ app.post('/api/events', async (req: Request, res: Response) => {
 });
 
 // API ดึงข้อมูลสถิติและรายชื่อผู้ลงทะเบียนสำหรับผู้จัดงาน (ใช้ในหน้า OrganizerDashboard)
-app.get('/api/events/:id/dashboard', async (req: Request, res: Response) => {
+app.get('/api/events/:id/dashboard', requireAuth, async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
 
@@ -455,6 +537,12 @@ app.get('/api/events/:id/dashboard', async (req: Request, res: Response) => {
 
     if (!event) {
       res.status(404).json({ message: 'ไม่พบข้อมูลกิจกรรมนี้' });
+      return;
+    }
+
+    // ดูแดชบอร์ด (มีข้อมูลส่วนตัวของผู้ลงทะเบียน) ได้เฉพาะผู้จัดงานเจ้าของงาน
+    if (event.userId !== req.userId) {
+      res.status(403).json({ message: 'เฉพาะผู้จัดงานเท่านั้นที่ดูแดชบอร์ดได้' });
       return;
     }
 
@@ -485,7 +573,7 @@ app.get('/api/events/:id/dashboard', async (req: Request, res: Response) => {
 });
 
 // API สำหรับแก้ไขข้อมูลกิจกรรม (ใช้เมื่อกดปุ่ม แก้ไขกิจกรรม ในหน้า OrganizerDashboard)
-app.put('/api/events/:id', async (req: Request, res: Response) => {
+app.put('/api/events/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
     const {
@@ -512,11 +600,12 @@ app.put('/api/events/:id', async (req: Request, res: Response) => {
         eventsStatus,
         updatedEventDate: new Date(),
       })
-      .where(eq(events.eventId, id))
+      // แก้ได้เฉพาะงานที่ตัวเองเป็นผู้จัด
+      .where(and(eq(events.eventId, id), eq(events.userId, req.userId!)))
       .returning();
 
     if (!updatedEvent) {
-      res.status(404).json({ message: 'ไม่พบกิจกรรมที่ต้องการแก้ไข' });
+      res.status(404).json({ message: 'ไม่พบกิจกรรมที่ต้องการแก้ไข หรือคุณไม่ใช่ผู้จัดงาน' });
       return;
     }
 
@@ -531,14 +620,17 @@ app.put('/api/events/:id', async (req: Request, res: Response) => {
 });
 
 // API ดึงข้อมูลโปรไฟล์ผู้ใช้ปัจจุบัน (ใช้ในหน้า MyAccount และ Overview)
-app.get('/api/profile', async (req: Request, res: Response) => {
+app.get('/api/profile', requireAuth, async (req: Request, res: Response) => {
   try {
-    const user = await getCurrentUser(req);
+    const user = await db.query.users.findFirst({ where: eq(users.userId, req.userId!) });
     if (!user) {
       res.status(404).json({ message: 'ไม่พบข้อมูลผู้ใช้งาน' });
       return;
     }
-    res.json(user);
+    // ห้ามส่ง passwordHash ออกไปให้ client
+    const { passwordHash: _omit, ...safeUser } = user;
+    // แนบสถานะการถูกระงับสิทธิ์จอง เพื่อให้ frontend แสดงแจ้งเตือนได้
+    res.json({ ...safeUser, ...(await getBookingRestriction(user.userId)) });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'ไม่สามารถดึงข้อมูลโปรไฟล์ได้' });
@@ -546,119 +638,46 @@ app.get('/api/profile', async (req: Request, res: Response) => {
 });
 
 // API อัปเดตข้อมูลโปรไฟล์ผู้ใช้ (ใช้ในหน้า MyAccount)
-app.put('/api/profile', async (req: Request, res: Response) => {
+app.put('/api/profile', requireAuth, async (req: Request, res: Response) => {
+  const parsed = updateProfileSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ message: parsed.error.issues[0].message, errors: parsed.error.flatten().fieldErrors });
+    return;
+  }
+  const data = parsed.data;
+
   try {
-    const {
-      firstName,
-      lastName,
-      nickname,
-      emailAddress,
-      phoneNumber,
-      birthday,
-      occupation,
-      workplace,
-      profileImage,
-      backgroundImage,
-      // password, // คอมเมนต์เก็บไว้ก่อน
-    } = req.body;
-
-    const currentUser = await getCurrentUser(req);
-    if (!currentUser) {
-      res.status(404).json({ message: 'ไม่พบข้อมูลผู้ใช้งาน' });
-      return;
-    }
-    const currentUserId = (currentUser as any).userId || (currentUser as any).id;
-
-    const updatePayload: Record<string, any> = {
-      firstName,
-      lastName,
-      emailAddress,
-      phoneNumber,
-      nickname,
-      birthday: birthday || null,
-      occupation,
-      workplace,
-      profileImage,
-      backgroundImage,
-    };
-
     const [updatedUser] = await db
       .update(users)
-      .set(updatePayload)
-      .where(eq(users.userId, currentUserId))
+      .set({
+        firstName: data.firstName,
+        lastName: data.lastName,
+        emailAddress: data.emailAddress,
+        phoneNumber: data.phoneNumber ?? null,
+        nickname: data.nickname,
+        birthday: data.birthday || null,
+        occupation: data.occupation,
+        workplace: data.workplace,
+        profileImage: data.profileImage,
+        backgroundImage: data.backgroundImage,
+        updatedUserDate: new Date(),
+      })
+      .where(eq(users.userId, req.userId!))
       .returning();
 
+    const { passwordHash: _omit, ...safeUser } = updatedUser;
     res.json({
       message: 'บันทึกข้อมูลส่วนตัวสำเร็จ!',
-      user: updatedUser,
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลส่วนตัว' });
-  }
-});
-
-// ฟังก์ชันช่วยดึง User ปัจจุบันจาก Header (x-user-id) ที่แต่ละแท็บส่งมา
-async function getCurrentUser(req: Request) {
-  const headerUserId = req.headers['x-user-id'] as string | undefined;
-  if (headerUserId) {
-    const user = await db.query.users.findFirst({
-      where: eq(users.userId, headerUserId),
-    });
-    if (user) return user;
-  }
-  // Fallback กรณีไม่ได้ส่ง Header มา ให้ดึงคนแรกเหมือนเดิมเพื่อไม่ให้ระบบเก่าพัง
-  return await db.query.users.findFirst();
-}
-
-// 🔑 API สำหรับเข้าสู่ระบบ (Login) พร้อมตรวจสอบด้วย Zod
-app.post('/api/auth/login', async (req: Request, res: Response) => {
-  try {
-    const parsed = loginSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ 
-        message: parsed.error.issues[0].message,
-        errors: parsed.error.flatten().fieldErrors 
-      });
-      return;
-    }
-
-    const { emailAddress, password } = parsed.data;
-
-    const user = await db.query.users.findFirst({
-      where: eq(users.emailAddress, emailAddress),
-    });
-
-    // ตรวจสอบรหัสผ่าน (รองรับทั้งรหัสจำลองใน seed และรหัสที่ตั้งไว้)
-    if (!user || (user.passwordHash !== password && password !== '123456')) {
-      res.status(401).json({ message: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' });
-      return;
-    }
-
-    const { passwordHash, ...safeUser } = user;
-    res.json({
-      message: 'เข้าสู่ระบบสำเร็จ!',
       user: safeUser,
     });
   } catch (error) {
+    if (isUniqueViolation(error)) {
+      res.status(409).json({ message: 'อีเมลหรือเบอร์โทรศัพท์นี้ถูกใช้งานแล้ว' });
+      return;
+    }
     console.error(error);
-    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ' });
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลส่วนตัว' });
   }
-});
-
-// 📋 API ดึงรายชื่อ User ทั้งหมดสำหรับปุ่มสลับบัญชีด่วน (Demo Switcher ตอนสอบ)
-app.get('/api/auth/demo-users', async (req: Request, res: Response) => {
-  const allUsers = await db.query.users.findMany({
-    columns: {
-      userId: true,
-      firstName: true,
-      lastName: true,
-      emailAddress: true,
-      occupation: true,
-      profileImage: true,
-    },
-  });
-  res.json(allUsers);
 });
 
 export default app;

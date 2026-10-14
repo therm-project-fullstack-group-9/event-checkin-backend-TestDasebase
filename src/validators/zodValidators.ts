@@ -2,8 +2,17 @@ import { z } from 'zod';
 
 // 1. กฎตรวจสอบการเข้าสู่ระบบ
 export const loginSchema = z.object({
-  emailAddress: z.string().email('รูปแบบอีเมลไม่ถูกต้อง'),
-  password: z.string().min(4, 'รหัสผ่านต้องมีอย่างน้อย 4 ตัวอักษร'),
+  emailAddress: z.string().trim().toLowerCase().email('รูปแบบอีเมลไม่ถูกต้อง'),
+  password: z.string().min(1, 'กรุณากรอกรหัสผ่าน'),
+});
+
+// กฎตรวจสอบการสมัครสมาชิก
+export const registerSchema = z.object({
+  firstName: z.string().trim().min(1, 'กรุณากรอกชื่อจริง'),
+  lastName: z.string().trim().min(1, 'กรุณากรอกนามสกุล'),
+  emailAddress: z.string().trim().toLowerCase().email('รูปแบบอีเมลไม่ถูกต้อง'),
+  phoneNumber: z.string().regex(/^[0-9]{10}$/, 'เบอร์โทรศัพท์ต้องเป็นตัวเลข 10 หลัก').optional(),
+  password: z.string().min(8, 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร').max(72, 'รหัสผ่านยาวเกินไป'),
 });
 
 // 2. กฎตรวจสอบการสร้างกิจกรรมใหม่
@@ -30,7 +39,7 @@ export const updateProfileSchema = z.object({
   lastName: z.string().min(1, 'กรุณากรอกนามสกุล'),
   nickname: z.string().optional().nullable(),
   emailAddress: z.string().email('รูปแบบอีเมลไม่ถูกต้อง'),
-  phoneNumber: z.string().regex(/^[0-9]{10}$/, 'เบอร์โทรศัพท์ต้องเป็นตัวเลข 10 หลัก'),
+  phoneNumber: z.string().regex(/^[0-9]{10}$/, 'เบอร์โทรศัพท์ต้องเป็นตัวเลข 10 หลัก').optional().nullable(),
   birthday: z.string().optional().nullable(),
   occupation: z.string().optional().nullable(),
   workplace: z.string().optional().nullable(),

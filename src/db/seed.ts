@@ -1,4 +1,5 @@
 import { db } from './index.js';
+import { hashPassword } from '../auth/password.js';
 import {
   users,
   events,
@@ -9,6 +10,9 @@ import {
 } from './schema.js';
 
 async function seed() {
+  // รหัสผ่านของผู้ใช้ตัวอย่างทุกคน (ใช้ตอนพัฒนา/สาธิตเท่านั้น) เก็บเป็น bcrypt hash
+  const demoPasswordHash = await hashPassword(process.env.SEED_PASSWORD ?? 'password123');
+
   console.log('🌱 กำลังเริ่มต้นล้างข้อมูลเก่าและสร้างข้อมูลจำลองชุดใหญ่ (Seeding)...');
 
   try {
@@ -33,7 +37,7 @@ async function seed() {
           nickname: 'ฟิวส์',
           emailAddress: 'worapop.k@cmu.ac.th',
           phoneNumber: '0812345678', // 10 หลัก ไม่มีขีด
-          passwordHash: 'hashed_password_123',
+          passwordHash: demoPasswordHash,
           birthday: '2005-10-24',    // ใช้ String ตามที่ date() ใน schema.ts กำหนด
           occupation: 'นักศึกษาวิศวกรรมคอมพิวเตอร์',
           workplace: 'มหาวิทยาลัยเชียงใหม่',
@@ -48,7 +52,7 @@ async function seed() {
           nickname: 'กิต',
           emailAddress: 'kittipong.j@example.com',
           phoneNumber: '0891112233',
-          passwordHash: 'hashed_password_123',
+          passwordHash: demoPasswordHash,
           birthday: '2003-05-14',
           occupation: 'Frontend Developer',
           workplace: 'Chiang Mai Digital Lab',
@@ -61,7 +65,7 @@ async function seed() {
           nickname: 'พิม',
           emailAddress: 'pimchanok.s@example.com',
           phoneNumber: '0864456677',
-          passwordHash: 'hashed_password_123',
+          passwordHash: demoPasswordHash,
           birthday: '2004-08-21',
           occupation: 'UX/UI Designer',
           workplace: 'Creative Studio CNX',
@@ -74,7 +78,7 @@ async function seed() {
           nickname: 'ภัทร',
           emailAddress: 'thanapat.w@example.com',
           phoneNumber: '0829988877',
-          passwordHash: 'hashed_password_123',
+          passwordHash: demoPasswordHash,
           birthday: '2002-11-03',
           occupation: 'System Engineer',
           workplace: 'Tech Sphere Thailand',
@@ -87,7 +91,7 @@ async function seed() {
           nickname: 'ณิชา',
           emailAddress: 'nattanicha.a@example.com',
           phoneNumber: '0912233344',
-          passwordHash: 'hashed_password_123',
+          passwordHash: demoPasswordHash,
           birthday: '2005-02-19',
           occupation: 'นักศึกษา',
           workplace: 'มหาวิทยาลัยเชียงใหม่',
@@ -100,7 +104,7 @@ async function seed() {
           nickname: 'เอิร์ธ',
           emailAddress: 'supakorn.t@example.com',
           phoneNumber: '0956677788',
-          passwordHash: 'hashed_password_123',
+          passwordHash: demoPasswordHash,
           birthday: '2001-07-30',
           occupation: 'Data Analyst',
           workplace: 'Northern Data Co., Ltd.',
@@ -113,7 +117,7 @@ async function seed() {
           nickname: 'มิ้นท์',
           emailAddress: 'chonticha.l@example.com',
           phoneNumber: '0845567890',
-          passwordHash: 'hashed_password_123',
+          passwordHash: demoPasswordHash,
           birthday: '2004-12-10',
           occupation: 'Digital Artist & Illustrator',
           workplace: 'Freelance',
@@ -126,7 +130,7 @@ async function seed() {
           nickname: 'ปอนด์',
           emailAddress: 'pawaris.k@example.com',
           phoneNumber: '0998876543',
-          passwordHash: 'hashed_password_123',
+          passwordHash: demoPasswordHash,
           birthday: '1999-04-05',
           occupation: 'Project Manager',
           workplace: 'Lanna Innovation Hub',
