@@ -10,6 +10,14 @@ const check = (name: string, ok: boolean, extra?: unknown) => {
 };
 
 (async () => {
+  // เส้นทางสาธารณะต้องยังเปิดอยู่โดยไม่ต้องมี token (ป้องกัน middleware ของ router อื่นไปครอบ)
+  check('public GET /api/events without token -> 200', (await request(app).get('/api/events')).status === 200);
+  const anyEvent = await db.query.events.findFirst();
+  if (anyEvent) {
+    check('public GET /api/events/:id without token -> 200', (await request(app).get(`/api/events/${anyEvent.eventId}`)).status === 200);
+    check('staff list without token -> 401', (await request(app).get(`/api/events/${anyEvent.eventId}/staff`)).status === 401);
+  }
+
   const email = `smoke-${Date.now()}@example.com`;
   const pw = 'longenough1';
 
@@ -56,6 +64,14 @@ const check = (name: string, ok: boolean, extra?: unknown) => {
   check('oauth start without config -> 503', noEmailOAuth.status === 503, noEmailOAuth.status);
   const badState = await request(app).get('/api/auth/callback?code=x&state=bad');
   check('oauth callback bad state redirects to login error', badState.status === 302 && String(badState.headers.location).includes('/login?error='), badState.headers.location);
+
+  // rate limit: 10 ครั้งแรกของอีเมลหนึ่งได้ 401, ครั้งที่ 11 ได้ 429 แต่อีเมลอื่นจาก IP เดียวกันยังล็อกอินได้
+  const victim = `rl-${Date.now()}@example.com`;
+  let last = 0;
+  for (let i = 0; i < 11; i++) last = (await request(app).post('/api/auth/login').send({ emailAddress: victim, password: 'x' })).status;
+  check('login rate limit: 11th attempt for same email -> 429', last === 429, last);
+  const other = await request(app).post('/api/auth/login').send({ emailAddress: `other-${Date.now()}@example.com`, password: 'x' });
+  check('rate limit does not block other emails on same IP', other.status === 401, other.status);
 
   console.log(fail ? `\n${fail} FAILED` : '\nALL PASSED');
   process.exit(fail ? 1 : 0);

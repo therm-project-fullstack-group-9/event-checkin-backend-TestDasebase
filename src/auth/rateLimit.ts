@@ -1,12 +1,13 @@
 import type { Request, Response, NextFunction } from 'express';
 
-// จำกัดจำนวนครั้งต่อ (IP + ปลายทาง) ในหน้าต่างเวลา — เก็บในหน่วยความจำ เหมาะกับ server เครื่องเดียว
-export function rateLimit(max: number, windowMs: number) {
+// จำกัดจำนวนครั้งต่อ key ในหน้าต่างเวลา — เก็บในหน่วยความจำ เหมาะกับ server เครื่องเดียว
+// key เริ่มต้น = IP + path; ส่ง keyFn เพื่อกำหนดเอง (เช่น แยกตามอีเมล ไม่ให้คนใน NAT เดียวกันบล็อกกันเอง)
+export function rateLimit(max: number, windowMs: number, keyFn?: (req: Request) => string) {
   const hits = new Map<string, { count: number; resetAt: number }>();
 
   return (req: Request, res: Response, next: NextFunction) => {
     const now = Date.now();
-    const key = `${req.ip}:${req.path}`;
+    const key = keyFn ? keyFn(req) : `${req.ip}:${req.path}`;
     const entry = hits.get(key);
 
     if (!entry || entry.resetAt <= now) {

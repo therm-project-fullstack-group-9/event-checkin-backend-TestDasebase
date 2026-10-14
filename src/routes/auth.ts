@@ -23,10 +23,13 @@ const isUniqueViolation = (err: unknown) =>
 // ----------------------------------------------------------------------------
 // สมัครสมาชิก
 // ----------------------------------------------------------------------------
-// กันเดารหัสผ่าน/สร้างบัญชีรัว: 10 ครั้ง ต่อ 15 นาที ต่อ IP
-const authLimiter = rateLimit(10, 15 * 60 * 1000);
+// กันเดารหัสผ่าน: login 10 ครั้ง/15 นาที ต่อ (IP + อีเมล) — แยกตามอีเมลเพื่อไม่ให้ผู้ใช้หลายคนที่ใช้ IP เดียวกัน
+// (เช่น เครือข่ายมหาวิทยาลัยหลัง NAT) บล็อกกันเอง ส่วน register 20 ครั้ง/15 นาที ต่อ IP
+const WINDOW_MS = 15 * 60 * 1000;
+const loginLimiter = rateLimit(10, WINDOW_MS, (req) => `login:${req.ip}:${String(req.body?.emailAddress ?? '').toLowerCase()}`);
+const registerLimiter = rateLimit(20, WINDOW_MS, (req) => `register:${req.ip}`);
 
-router.post('/register', authLimiter, async (req: Request, res: Response) => {
+router.post('/register', registerLimiter, async (req: Request, res: Response) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ message: parsed.error.issues[0].message, errors: parsed.error.flatten().fieldErrors });
@@ -66,7 +69,7 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
 // ----------------------------------------------------------------------------
 // เข้าสู่ระบบด้วยอีเมล/รหัสผ่าน
 // ----------------------------------------------------------------------------
-router.post('/login', authLimiter, async (req: Request, res: Response) => {
+router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ message: parsed.error.issues[0].message, errors: parsed.error.flatten().fieldErrors });

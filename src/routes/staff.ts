@@ -6,8 +6,9 @@ import { events, eventStaffs, users } from '../db/schema.js';
 import { requireAuth } from '../auth/middleware.js';
 
 // จัดการสตาฟของกิจกรรม — ทำได้เฉพาะผู้จัดงานเจ้าของกิจกรรม
+// หมายเหตุ: ห้ามใช้ router.use(requireAuth) เพราะ router นี้ถูก mount ที่ /api/events ซึ่งมี GET สาธารณะอยู่ด้วย
+// (รายการกิจกรรม/รายละเอียดกิจกรรม) จึงใส่ requireAuth เป็นรายเส้นทางแทน
 const router = Router();
-router.use(requireAuth);
 
 const addStaffSchema = z.object({
   emailAddress: z.string().trim().toLowerCase().email('รูปแบบอีเมลไม่ถูกต้อง'),
@@ -27,7 +28,7 @@ async function loadOwnedEvent(req: Request, res: Response) {
   return event;
 }
 
-router.get('/:id/staff', async (req: Request, res: Response) => {
+router.get('/:id/staff', requireAuth, async (req: Request, res: Response) => {
   const event = await loadOwnedEvent(req, res);
   if (!event) return;
   const staffs = await db.query.eventStaffs.findMany({
@@ -37,7 +38,7 @@ router.get('/:id/staff', async (req: Request, res: Response) => {
   res.json(staffs);
 });
 
-router.post('/:id/staff', async (req: Request, res: Response) => {
+router.post('/:id/staff', requireAuth, async (req: Request, res: Response) => {
   const event = await loadOwnedEvent(req, res);
   if (!event) return;
 
@@ -72,7 +73,7 @@ router.post('/:id/staff', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:id/staff/:userId', async (req: Request, res: Response) => {
+router.delete('/:id/staff/:userId', requireAuth, async (req: Request, res: Response) => {
   const event = await loadOwnedEvent(req, res);
   if (!event) return;
   const removed = await db
