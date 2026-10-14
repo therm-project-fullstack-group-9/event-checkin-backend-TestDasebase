@@ -206,12 +206,13 @@ router.get('/callback', async (req: Request, res: Response) => {
     if (!user) {
       const fullName = str(profile.name) ?? '';
       const [first, ...rest] = fullName.split(/\s+/).filter(Boolean);
-      const familyName = str(profile.family_name);
-      let givenName = str(profile.given_name);
+      const squash = (v: string | undefined) => v?.replace(/\s+/g, ' ').trim() || undefined;
+      const familyName = squash(str(profile.family_name));
+      let givenName = squash(str(profile.given_name));
       // บางผู้ให้บริการ (เช่น CMU mock) ส่ง given_name เป็นชื่อเต็ม ("ชื่อ นามสกุล") ซ้ำกับ family_name
-      // ตัดนามสกุลท้ายชื่อออกเพื่อไม่ให้ชื่อ-นามสกุลซ้ำกัน
-      if (givenName && familyName && givenName.endsWith(` ${familyName}`)) {
-        givenName = givenName.slice(0, -familyName.length).trim();
+      // ตัดนามสกุลท้ายชื่อออกเพื่อไม่ให้ชื่อ-นามสกุลซ้ำกัน (เทียบแบบไม่สนตัวพิมพ์/ช่องว่างซ้ำ)
+      if (givenName && familyName && givenName.toLowerCase().endsWith(` ${familyName.toLowerCase()}`)) {
+        givenName = givenName.slice(0, givenName.length - familyName.length).trim();
       }
       [user] = await db
         .insert(users)
