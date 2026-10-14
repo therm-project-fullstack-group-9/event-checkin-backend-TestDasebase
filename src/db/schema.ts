@@ -9,8 +9,10 @@ import {
   integer,
   unique,
   date,
+  uniqueIndex,
+  check,
 } from "drizzle-orm/pg-core";
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 
 export const bookingStatusEnum = pgEnum('booking_status', ['CONFIRMED', 'CHECKED_IN', 'CANCELLED']);
 export const actionTypeEnum = pgEnum('action_type', ['IN', 'OUT']);
@@ -59,7 +61,10 @@ export const sessions = pgTable('sessions', {
   endTime: varchar('end_time', { length: 20 }).notNull(),
   capacity: integer('capacity').notNull(),
   booked: integer('booked').default(0).notNull(),
-});
+}, (table) => [
+  // กัน booked เกิน capacity หรือติดลบ แม้โค้ดชั้นบนจะพลาด (ด่านสุดท้ายระดับ DB)
+  check('sessions_booked_within_capacity', sql`${table.booked} >= 0 AND ${table.booked} <= ${table.capacity}`),
+]);
 
 // BOOKINGS TABLE
 export const bookings = pgTable('bookings', {
@@ -74,7 +79,12 @@ export const bookings = pgTable('bookings', {
   checkInTime: timestamp('check_in_time'),
   cancelDate: timestamp('cancel_date'),
   updateBookingDate: timestamp('update_booking_date').defaultNow().notNull(),
-});
+}, (table) => [
+  // 1 คนจองได้ 1 ใบต่อ 1 รอบ (ใบที่ยกเลิกแล้วไม่นับ จึงจองใหม่ได้)
+  uniqueIndex('bookings_user_session_active_uq')
+    .on(table.userId, table.sessionId)
+    .where(sql`${table.bookingStatus} <> 'CANCELLED'`),
+]);
 
 // EVENT STAFFS TABLE
 export const eventStaffs = pgTable('event_staffs', {

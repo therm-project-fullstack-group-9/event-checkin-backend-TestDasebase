@@ -3,7 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
-import { eq, sql, asc, and } from 'drizzle-orm';
+import { randomBytes } from 'node:crypto';
+import { eq, sql, asc, and, ne } from 'drizzle-orm';
 import { db } from './db/index.js';
 import { users, events, sessions, bookings, checkInLogs, eventStaffs } from './db/schema.js';
 import { loginSchema, createEventSchema, updateProfileSchema } from './validators/zodValidators.js';
@@ -110,27 +111,33 @@ app.post('/api/staff/check-in', async (req: Request, res: Response) => {
       return;
     }
 
-    // กำหนดเวลาที่จะบันทึกลงฐานข้อมูล
+    // เช็คอินแบบ atomic ใน transaction: อัปเดตเฉพาะตั๋วที่ยัง CONFIRMED
+    // ถ้าแอดมิน 2 คนสแกนพร้อมกัน จะมีคนเดียวที่ update สำเร็จ ไม่เกิด log ซ้ำ
     const now = new Date();
+    const updatedBooking = await db.transaction(async (tx) => {
+      const [row] = await tx.update(bookings)
+        .set({ bookingStatus: 'CHECKED_IN', checkInTime: now, updateBookingDate: now })
+        .where(and(eq(bookings.bookingId, booking.bookingId), eq(bookings.bookingStatus, 'CONFIRMED')))
+        .returning();
+      if (!row) return null;
 
-    // อัปเดตสถานะตั๋วเป็น CHECKED_IN และดึงค่าที่บันทึกจริงกลับมาจาก DB ด้วย .returning()
-    const [updatedBooking] = await db.update(bookings)
-      .set({ 
-        bookingStatus: 'CHECKED_IN', 
-        checkInTime: now,
-        updateBookingDate: now
-      })
-      .where(eq(bookings.bookingId, booking.bookingId))
-      .returning();
-
-    // บันทึกประวัติลงตาราง CHECK-IN LOGS
-    await db.insert(checkInLogs).values({
-      bookingId: booking.bookingId,
-      userId: booking.userId,
-      ticketRef: booking.ticketRef,
-      actionType: 'IN',
-      timestamp: now,
+      await tx.insert(checkInLogs).values({
+        bookingId: booking.bookingId,
+        userId: booking.userId, // TODO: เปลี่ยนเป็น staff ที่สแกนจริงเมื่อมีระบบ JWT
+        ticketRef: booking.ticketRef,
+        actionType: 'IN',
+        timestamp: now,
+      });
+      return row;
     });
+
+    if (!updatedBooking) {
+      res.status(409).json({
+        status: 'error',
+        message: `ตั๋วใบนี้ (${ticketRef}) ไม่อยู่ในสถานะที่เช็คอินได้ หรือถูกสแกนไปแล้ว`,
+      });
+      return;
+    }
 
     res.json({
       status: 'success',
@@ -146,27 +153,34 @@ app.post('/api/staff/check-in', async (req: Request, res: Response) => {
   }
 });
 
+// Error สำหรับ business rule ที่เกิดใน transaction (ทำให้ rollback แล้วแปลงเป็น HTTP status)
+class BookingError extends Error {
+  constructor(public status: number, message: string, public extra: Record<string, unknown> = {}) {
+    super(message);
+  }
+}
+
+// รหัสพื้นฐานของ Postgres: 23505 = unique_violation
+const isUniqueViolation = (err: unknown) =>
+  (err as { code?: string; cause?: { code?: string } })?.code === '23505' ||
+  (err as { cause?: { code?: string } })?.cause?.code === '23505';
+
+// สร้างรหัสตั๋วด้วย crypto (Math.random ไม่ปลอดภัยและชนกันได้ง่าย) เช่น EVT-A1B2C3
+const generateTicketRef = () => `EVT-${randomBytes(4).toString('hex').toUpperCase()}`;
+
 // API สำหรับกดจองตั๋วเข้าร่วมกิจกรรม (ใช้ในหน้า EventDetails)
+// แก้ Race Condition: ตรวจที่นั่ง + เพิ่ม booked + สร้างใบจอง ทำใน transaction เดียว
+// โดยใช้ atomic UPDATE ... WHERE booked < capacity ทำให้ตั๋วใบสุดท้ายถูกจองได้เพียงคนเดียว
 app.post('/api/bookings', async (req: Request, res: Response) => {
   try {
-    const { eventId, sessionId, healthDeclaration } = req.body;
+    const { sessionId, healthDeclaration } = req.body;
 
-    // 1. ตรวจสอบรอบเวลาว่ายังมีที่นั่งว่างหรือไม่
-    const session = await db.query.sessions.findFirst({
-      where: eq(sessions.sessionId, sessionId),
-    });
-
-    if (!session) {
-      res.status(404).json({ message: 'ไม่พบรอบเวลานี้ในระบบ' });
+    if (!sessionId) {
+      res.status(400).json({ message: 'กรุณาระบุรอบเวลาที่ต้องการจอง' });
       return;
     }
 
-    if (session.booked >= session.capacity) {
-      res.status(400).json({ message: 'ขออภัย รอบเวลานี้ที่นั่งเต็มแล้ว!' });
-      return;
-    }
-
-    // 2. ดึง User ที่กำลัง Login
+    // ดึง User ที่กำลัง Login
     const defaultUser = await getCurrentUser(req);
     if (!defaultUser) {
       res.status(400).json({ message: 'ไม่พบข้อมูลผู้ใช้งานในระบบ กรุณารัน seed ข้อมูลก่อน' });
@@ -174,51 +188,65 @@ app.post('/api/bookings', async (req: Request, res: Response) => {
     }
     const currentUserId = (defaultUser as any).userId || (defaultUser as any).id;
 
-    //  2.5 เพิ่มส่วนนี้: เช็คว่า User คนนี้เคยจอง Event นี้ไปแล้วหรือยัง?
-    const existingBooking = await db.query.bookings.findFirst({
-      where: and(
-        // // แบบ 1 คน จองได้แค่ 1 สิทธิ์ต่อ 1 งานเท่านั้น
-        // eq(bookings.userId, currentUserId),
-        // eq(bookings.eventId, eventId)
-        
-        // แบบ 1 คน จองได้หลายรอบเวลาในงานเดียวกัน (แต่ห้ามจองรอบเวลาเดิมซ้ำ)
-        eq(bookings.userId, currentUserId), 
-        eq(bookings.sessionId, sessionId) 
-      ),
-    });
+    const newBooking = await db.transaction(async (tx) => {
+      // 1. จองที่นั่งแบบ atomic: เพิ่ม booked ได้ก็ต่อเมื่อยังไม่เต็มเท่านั้น
+      //    Postgres จะ lock แถวนี้ ทำให้ request ที่มาพร้อมกันต้องรอคิวและเห็นค่าล่าสุดเสมอ
+      const [reserved] = await tx
+        .update(sessions)
+        .set({ booked: sql`${sessions.booked} + 1` })
+        .where(and(eq(sessions.sessionId, sessionId), sql`${sessions.booked} < ${sessions.capacity}`))
+        .returning({ sessionId: sessions.sessionId, eventId: sessions.eventId });
 
-    if (existingBooking && existingBooking.bookingStatus !== 'CANCELLED') {
-      res.status(400).json({ 
-        message: `คุณได้จองตั๋วของกิจกรรมนี้ไปแล้ว! (รหัสตั๋วของคุณคือ: ${existingBooking.ticketRef})`,
-        ticketRef: existingBooking.ticketRef, 
+      if (!reserved) {
+        // update ไม่โดนแถวใด = ไม่มีรอบนี้ หรือ เต็มแล้ว -> แยกกรณีเพื่อตอบ error ให้ถูก
+        const exists = await tx.query.sessions.findFirst({ where: eq(sessions.sessionId, sessionId) });
+        if (!exists) throw new BookingError(404, 'ไม่พบรอบเวลานี้ในระบบ');
+        throw new BookingError(409, 'ขออภัย รอบเวลานี้ที่นั่งเต็มแล้ว!');
+      }
+
+      // 2. กันจองซ้ำรอบเดิม (ข้ามใบที่ CANCELLED) — ถ้า throw จะ rollback การเพิ่ม booked ให้เอง
+      const existingBooking = await tx.query.bookings.findFirst({
+        where: and(
+          eq(bookings.userId, currentUserId),
+          eq(bookings.sessionId, sessionId),
+          ne(bookings.bookingStatus, 'CANCELLED'),
+        ),
       });
-      return;
-    }
+      if (existingBooking) {
+        throw new BookingError(
+          409,
+          `คุณได้จองตั๋วของรอบเวลานี้ไปแล้ว! (รหัสตั๋วของคุณคือ: ${existingBooking.ticketRef})`,
+          { ticketRef: existingBooking.ticketRef },
+        );
+      }
 
-    // 3. สุ่มสร้างรหัสตั๋ว 6 หลัก เช่น EVT-A1B2C3
-    const randomChars = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const newTicketRef = `EVT-${randomChars}`;
+      // 3. บันทึกใบจอง — ใช้ eventId จาก session ใน DB ไม่เชื่อ eventId ที่ client ส่งมา
+      const [created] = await tx.insert(bookings).values({
+        ticketRef: generateTicketRef(),
+        userId: currentUserId,
+        eventId: reserved.eventId,
+        sessionId,
+        bookingStatus: 'CONFIRMED',
+        healthDeclaration: healthDeclaration || 'ปกติ',
+      }).returning();
 
-    // 4. บันทึกใบจองลงตาราง bookings
-    const [newBooking] = await db.insert(bookings).values({
-      ticketRef: newTicketRef,
-      userId: currentUserId,
-      eventId,
-      sessionId,
-      bookingStatus: 'CONFIRMED',
-      healthDeclaration: healthDeclaration || 'ปกติ',
-    }).returning();
-
-    // 5. อัปเดตจำนวนคนจอง (booked + 1) ในตาราง sessions
-    await db.update(sessions)
-      .set({ booked: sql`${sessions.booked} + 1` })
-      .where(eq(sessions.sessionId, sessionId));
+      return created;
+    });
 
     res.status(201).json({
       message: 'จองตั๋วสำเร็จ!',
       booking: newBooking,
     });
   } catch (error) {
+    if (error instanceof BookingError) {
+      res.status(error.status).json({ message: error.message, ...error.extra });
+      return;
+    }
+    // unique index (user_id, session_id) กันกรณี 2 request จองซ้ำพร้อมกัน
+    if (isUniqueViolation(error)) {
+      res.status(409).json({ message: 'คุณได้จองตั๋วของรอบเวลานี้ไปแล้ว!' });
+      return;
+    }
     console.error(error);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการจองตั๋ว' });
   }
