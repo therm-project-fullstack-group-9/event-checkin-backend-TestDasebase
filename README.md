@@ -40,7 +40,9 @@
   - ผู้ใช้ที่มี `NO_SHOW` ครบ `NO_SHOW_LIMIT` (ค่าเริ่มต้น 1) จองตั๋วใหม่ไม่ได้ (`403`, `code: BOOKING_BLOCKED`) และ `GET /api/profile` คืน `noShowCount`, `bookingBlocked`
   - จองรอบที่สิ้นสุดไปแล้วไม่ได้ (`400`)
   - สตาฟ: `GET|POST /api/events/:id/staff`, `DELETE /api/events/:id/staff/:userId` (เฉพาะผู้จัดงาน)
-  - ทดสอบ: `pnpm tsx scripts/quota-test.ts`, `pnpm test`
+  - ลบกิจกรรม: `DELETE /api/events/:id` (เฉพาะผู้จัดงาน; รอบเวลา ใบจอง สตาฟ และประวัติเช็กอินถูกลบตามด้วย `ON DELETE CASCADE`)
+  - กิจกรรมสถานะ `Cancelled` ไม่แสดงใน `GET /api/events` และจองไม่ได้ (`409`, `code: EVENT_CANCELLED`) แต่ `GET /api/events/:id` ยังเปิดดูได้
+  - ทดสอบ: `pnpm tsx scripts/quota-test.ts`, `pnpm tsx scripts/event-lifecycle-test.ts`, `pnpm test`
 
 ## Docker
   - `docker build -t event-checkin-backend .` (image มี drizzle-kit/tsx ด้วย รัน `pnpm db:push` ใน container ได้)

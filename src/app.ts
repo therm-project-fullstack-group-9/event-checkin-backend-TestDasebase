@@ -52,6 +52,8 @@ app.get('/api/health', (req: Request, res: Response) => {
 app.get('/api/events', async (req: Request, res: Response) => {
   try {
     const allEvents = await db.query.events.findMany({
+      // กิจกรรมที่ผู้จัดตั้งสถานะ Cancelled แล้วไม่แสดงในหน้าสาธารณะ
+      where: ne(events.eventsStatus, 'Cancelled'),
       with: {
         sessions: {
           orderBy: [asc(sessions.startTime)],
@@ -255,11 +257,16 @@ app.post('/api/bookings', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    // จองรอบที่สิ้นสุดไปแล้วไม่ได้
     const target = await db.query.sessions.findFirst({
       where: eq(sessions.sessionId, sessionId),
       with: { event: true },
     });
+    // กิจกรรมที่ถูกยกเลิกแล้วจองไม่ได้
+    if (target && target.event.eventsStatus === 'Cancelled') {
+      res.status(409).json({ code: 'EVENT_CANCELLED', message: 'กิจกรรมนี้ถูกยกเลิกแล้ว ไม่สามารถจองตั๋วได้' });
+      return;
+    }
+    // จองรอบที่สิ้นสุดไปแล้วไม่ได้
     if (target && hasSessionEnded(target.event.eventDate, target.startTime, target.endTime)) {
       res.status(400).json({ message: 'รอบเวลานี้สิ้นสุดไปแล้ว ไม่สามารถจองได้' });
       return;
@@ -616,6 +623,27 @@ app.put('/api/events/:id', requireAuth, async (req: Request, res: Response) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการแก้ไขกิจกรรม' });
+  }
+});
+
+// API ลบกิจกรรม (เฉพาะผู้จัดงานเจ้าของกิจกรรม)
+// รอบเวลา ใบจอง สตาฟ และประวัติเช็กอินของงานนี้ถูกลบตามอัตโนมัติ (ON DELETE CASCADE)
+app.delete('/api/events/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    const [deleted] = await db
+      .delete(events)
+      .where(and(eq(events.eventId, id), eq(events.userId, req.userId!)))
+      .returning({ eventId: events.eventId });
+
+    if (!deleted) {
+      res.status(404).json({ message: 'ไม่พบกิจกรรมที่ต้องการลบ หรือคุณไม่ใช่ผู้จัดงาน' });
+      return;
+    }
+    res.json({ message: 'ลบกิจกรรมสำเร็จ', eventId: deleted.eventId });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการลบกิจกรรม' });
   }
 });
 
