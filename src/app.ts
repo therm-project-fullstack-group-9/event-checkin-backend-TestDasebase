@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { randomBytes } from 'node:crypto';
-import { eq, sql, asc, and, ne } from 'drizzle-orm';
+import { eq, sql, asc, and, ne, notInArray } from 'drizzle-orm';
 import { db } from './db/index.js';
 import { users, events, sessions, bookings, checkInLogs, eventStaffs } from './db/schema.js';
 import { createEventSchema, updateProfileSchema } from './validators/zodValidators.js';
@@ -13,6 +13,13 @@ import { requireAuth } from './auth/middleware.js';
 import staffRouter from './routes/staff.js';
 import { hasSessionEnded } from './lib/eventTime.js';
 import { markOverdueNoShows, getBookingRestriction } from './services/noShow.js';
+
+// สถานะที่ปิดรับจองและไม่แสดงในหน้าสำรวจกิจกรรม -> code/ข้อความที่ตอบเมื่อพยายามจอง
+const CLOSED_EVENT_STATUSES = {
+  Cancelled: { code: 'EVENT_CANCELLED', message: 'กิจกรรมนี้ถูกยกเลิกแล้ว ไม่สามารถจองตั๋วได้' },
+  Completed: { code: 'EVENT_COMPLETED', message: 'กิจกรรมนี้จบแล้ว ไม่สามารถจองตั๋วได้' },
+} as const;
+const closedStatusNames = Object.keys(CLOSED_EVENT_STATUSES) as (keyof typeof CLOSED_EVENT_STATUSES)[];
 
 const app = express();
 
@@ -52,8 +59,8 @@ app.get('/api/health', (req: Request, res: Response) => {
 app.get('/api/events', async (req: Request, res: Response) => {
   try {
     const allEvents = await db.query.events.findMany({
-      // กิจกรรมที่ผู้จัดตั้งสถานะ Cancelled แล้วไม่แสดงในหน้าสาธารณะ
-      where: ne(events.eventsStatus, 'Cancelled'),
+      // กิจกรรมที่ผู้จัดตั้งสถานะ Cancelled หรือ Completed ไม่แสดงในหน้าสาธารณะ
+      where: notInArray(events.eventsStatus, closedStatusNames),
       with: {
         sessions: {
           orderBy: [asc(sessions.startTime)],
@@ -261,9 +268,10 @@ app.post('/api/bookings', requireAuth, async (req: Request, res: Response) => {
       where: eq(sessions.sessionId, sessionId),
       with: { event: true },
     });
-    // กิจกรรมที่ถูกยกเลิกแล้วจองไม่ได้
-    if (target && target.event.eventsStatus === 'Cancelled') {
-      res.status(409).json({ code: 'EVENT_CANCELLED', message: 'กิจกรรมนี้ถูกยกเลิกแล้ว ไม่สามารถจองตั๋วได้' });
+    // กิจกรรมที่ยกเลิกหรือจบแล้วจองไม่ได้
+    const closed = target && CLOSED_EVENT_STATUSES[target.event.eventsStatus as keyof typeof CLOSED_EVENT_STATUSES];
+    if (closed) {
+      res.status(409).json(closed);
       return;
     }
     // จองรอบที่สิ้นสุดไปแล้วไม่ได้

@@ -41,7 +41,7 @@
   - จองรอบที่สิ้นสุดไปแล้วไม่ได้ (`400`)
   - สตาฟ: `GET|POST /api/events/:id/staff`, `DELETE /api/events/:id/staff/:userId` (เฉพาะผู้จัดงาน)
   - ลบกิจกรรม: `DELETE /api/events/:id` (เฉพาะผู้จัดงาน; รอบเวลา ใบจอง สตาฟ และประวัติเช็กอินถูกลบตามด้วย `ON DELETE CASCADE`)
-  - กิจกรรมสถานะ `Cancelled` ไม่แสดงใน `GET /api/events` และจองไม่ได้ (`409`, `code: EVENT_CANCELLED`) แต่ `GET /api/events/:id` ยังเปิดดูได้
+  - กิจกรรมสถานะ `Cancelled` หรือ `Completed` ไม่แสดงใน `GET /api/events` และจองไม่ได้ (`409`, `code: EVENT_CANCELLED | EVENT_COMPLETED`) แต่ `GET /api/events/:id` ยังเปิดดูได้
   - ทดสอบ: `pnpm tsx scripts/quota-test.ts`, `pnpm tsx scripts/event-lifecycle-test.ts`, `pnpm test`
 
 ## Docker
