@@ -382,6 +382,7 @@ app.get('/api/my-bookings', requireAuth, async (req: Request, res: Response) => 
         sessionTime: `${b.session.startTime} - ${b.session.endTime} น.`,
         venue: b.event.venue,
         imageUrl: b.event.imageUrl,
+        eventsStatus: b.event.eventsStatus,
         role: 'Attendee' as const,
         ticketRef: b.ticketRef,
         
@@ -395,6 +396,7 @@ app.get('/api/my-bookings', requireAuth, async (req: Request, res: Response) => 
         date: e.eventDate,
         venue: e.venue,
         imageUrl: e.imageUrl,
+        eventsStatus: e.eventsStatus,
         role: 'Organizer' as const,
       })),
       // การ์ดฝั่ง Staff (งานที่เป็นสตาฟฟ์)
@@ -405,6 +407,7 @@ app.get('/api/my-bookings', requireAuth, async (req: Request, res: Response) => 
         date: s.event.eventDate,
         venue: s.event.venue,
         imageUrl: s.event.imageUrl,
+        eventsStatus: s.event.eventsStatus,
         role: 'Staff' as const,
       })),
     ];

@@ -55,6 +55,14 @@ const bkk = (offsetDays: number) =>
   const bookLive = await request(app).post('/api/bookings').set(bearer(att.userId)).send({ sessionId: live.s.sessionId });
   check('can still book normal event', bookLive.status === 201, bookLive.body);
 
+  // --- my-bookings ส่งสถานะ event ให้ทุกบทบาท ---
+  const mine = await request(app).get('/api/my-bookings').set(bearer(att.userId));
+  const attCard = mine.body.find((i: { role: string; eventId: string }) => i.role === 'Attendee' && i.eventId === live.ev.eventId);
+  check('my-bookings (Attendee) includes eventsStatus', attCard?.eventsStatus === 'Upcoming', attCard);
+  const mineOrg = await request(app).get('/api/my-bookings').set(bearer(org.userId));
+  const orgCard = mineOrg.body.find((i: { role: string; eventId: string }) => i.role === 'Organizer' && i.eventId === cancelled.ev.eventId);
+  check('my-bookings (Organizer) includes eventsStatus', orgCard?.eventsStatus === 'Cancelled', orgCard);
+
   // --- ลบ event ---
   const noAuth = await request(app).delete(`/api/events/${live.ev.eventId}`);
   check('delete without token -> 401', noAuth.status === 401, noAuth.body);
